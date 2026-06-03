@@ -37,6 +37,7 @@ func Connect(ctx context.Context, appID int, appHash string, method LoginMethod)
 
 type Client interface {
 	Chats() (ChatService, error)
+	Messages() (MessageService, error)
 
 	Close() error
 	Errors() <-chan error
@@ -47,8 +48,9 @@ type client struct {
 	cancel  context.CancelFunc
 	errChan chan error
 
-	tgClient    *telegram.Client
-	chatService *chatService
+	tgClient       *telegram.Client
+	chatService    *chatService
+	messageService *messageService
 
 	done      chan struct{}
 	ready     chan error
@@ -85,6 +87,13 @@ func (c *client) Chats() (ChatService, error) {
 	return c.chatService, nil
 }
 
+func (c *client) Messages() (MessageService, error) {
+	if c.messageService == nil {
+		return nil, errors.New("client is not ready")
+	}
+	return c.messageService, nil
+}
+
 func (c *client) run(ctx context.Context, appID int, appHash string, method LoginMethod) {
 	defer close(c.done)
 
@@ -100,6 +109,7 @@ func (c *client) run(ctx context.Context, appID int, appHash string, method Logi
 
 		api := c.tgClient.API()
 		c.chatService = &chatService{api: api}
+		c.messageService = &messageService{api: api}
 		c.signalReady(nil)
 
 		<-ctx.Done()
