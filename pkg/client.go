@@ -6,9 +6,24 @@ import (
 	"sync"
 
 	"github.com/gotd/td/telegram"
+	"github.com/gotd/td/tg"
 )
 
-func Connect(ctx context.Context, appID int, appHash string, method LoginMethod) (Client, error) {
+type ClientOption func(*client)
+
+func WithLoginMethod(method LoginMethod) ClientOption {
+	return func(c *client) {
+		c.loginMethod = method
+	}
+}
+
+func WithUpdateMux(mux UpdateMux) ClientOption {
+	return func(c *client) {
+		c.updateMux = mux
+	}
+}
+
+func Connect(ctx context.Context, appID int, appHash string, opts ...ClientOption) (Client, error) {
 	ctx, cancel := context.WithCancel(ctx)
 
 	c := &client{
@@ -18,7 +33,11 @@ func Connect(ctx context.Context, appID int, appHash string, method LoginMethod)
 		ready:   make(chan error, 1),
 	}
 
-	go c.run(ctx, appID, appHash, method)
+	for _, opt := range opts {
+		opt(c)
+	}
+
+	go c.run(ctx, appID, appHash)
 
 	select {
 	case err := <-c.ready:
@@ -51,6 +70,9 @@ type client struct {
 	tgClient       *telegram.Client
 	chatService    *chatService
 	messageService *messageService
+
+	loginMethod LoginMethod
+	updateMux   UpdateMux
 
 	done      chan struct{}
 	ready     chan error
@@ -94,14 +116,24 @@ func (c *client) Messages() (MessageService, error) {
 	return c.messageService, nil
 }
 
-func (c *client) run(ctx context.Context, appID int, appHash string, method LoginMethod) {
+func (c *client) run(ctx context.Context, appID int, appHash string) {
 	defer close(c.done)
 
-	c.tgClient = telegram.NewClient(appID, appHash, telegram.Options{})
+	tgOptions := telegram.Options{}
+
+	if c.updateMux != nil {
+		dispatcher := tg.NewUpdateDispatcher()
+		c.updateMux.register(&dispatcher)
+		tgOptions.UpdateHandler = dispatcher
+	} else {
+		tgOptions.NoUpdates = true
+	}
+
+	c.tgClient = telegram.NewClient(appID, appHash, tgOptions)
 
 	if err := c.tgClient.Run(ctx, func(ctx context.Context) error {
-		if method != nil {
-			if err := method.Login(ctx, c.tgClient); err != nil {
+		if c.loginMethod != nil {
+			if err := c.loginMethod.Login(ctx, c.tgClient); err != nil {
 				c.signalReady(err)
 				return err
 			}
