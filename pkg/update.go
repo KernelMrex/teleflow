@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/gotd/td/constant"
 	"github.com/gotd/td/tg"
 )
 
@@ -14,7 +13,7 @@ type MessageHandler func(ctx context.Context, chatID ChatID, msg *Message) error
 type UpdateMux interface {
 	OnChatMessage(chatID ChatID, handler MessageHandler) error
 
-	register(dispatcher *tg.UpdateDispatcher)
+	register(dispatcher *tg.UpdateDispatcher, peerStore *peerStore)
 }
 
 func NewUpdateMux() UpdateMux {
@@ -26,6 +25,7 @@ func NewUpdateMux() UpdateMux {
 type updateMux struct {
 	dispatcher      *tg.UpdateDispatcher
 	messageHandlers map[ChatID][]MessageHandler
+	peerStore       *peerStore
 }
 
 func (r *updateMux) OnChatMessage(chatID ChatID, handler MessageHandler) error {
@@ -42,18 +42,19 @@ func (r *updateMux) OnChatMessage(chatID ChatID, handler MessageHandler) error {
 	return nil
 }
 
-func (r *updateMux) register(dispatcher *tg.UpdateDispatcher) {
+func (r *updateMux) register(dispatcher *tg.UpdateDispatcher, peerStore *peerStore) {
+	r.peerStore = peerStore
 	r.dispatcher = dispatcher
 
 	r.dispatcher.OnNewMessage(func(ctx context.Context, e tg.Entities, update *tg.UpdateNewMessage) error {
-		return r.dispatchMessage(ctx, update.Message)
+		return r.dispatchMessage(ctx, e, update.Message)
 	})
 	r.dispatcher.OnNewChannelMessage(func(ctx context.Context, e tg.Entities, update *tg.UpdateNewChannelMessage) error {
-		return r.dispatchMessage(ctx, update.Message)
+		return r.dispatchMessage(ctx, e, update.Message)
 	})
 }
 
-func (r *updateMux) dispatchMessage(ctx context.Context, raw tg.MessageClass) error {
+func (r *updateMux) dispatchMessage(ctx context.Context, e tg.Entities, raw tg.MessageClass) error {
 	tgMsg, ok := raw.(*tg.Message)
 	if !ok {
 		return nil
@@ -62,6 +63,10 @@ func (r *updateMux) dispatchMessage(ctx context.Context, raw tg.MessageClass) er
 	chatID, ok := chatIDFromPeer(tgMsg.PeerID)
 	if !ok {
 		return nil
+	}
+
+	if inputPeer, ok := inputPeerFromPeer(tgMsg.PeerID, e); ok {
+		r.peerStore.Put(chatID, inputPeer)
 	}
 
 	tfMsg := &Message{
@@ -84,22 +89,5 @@ func (r *updateMux) dispatchMessage(ctx context.Context, raw tg.MessageClass) er
 		}
 	}
 
-	return nil
-}
-
-func chatIDFromPeer(peer tg.PeerClass) (ChatID, bool) {
-	var id constant.TDLibPeerID
-
-	switch p := peer.(type) {
-	case *tg.PeerUser:
-		id.User(p.UserID)
-	case *tg.PeerChat:
-		id.Chat(p.ChatID)
-	case *tg.PeerChannel:
-		id.Channel(p.ChannelID)
-	default:
-		return 0, false
-	}
-
-	return ChatID(id), true
+	return handlerErrors
 }

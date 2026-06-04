@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 
+	tgpeers "github.com/gotd/td/telegram/peers"
 	"github.com/gotd/td/tg"
 )
 
@@ -11,11 +12,19 @@ type ChatID int64
 
 type ChatRef string
 
-type ChatTypeGroup int
+type ChatType int
+
+const (
+	ChatTypeUnknown ChatType = iota
+	ChatTypeUser
+	ChatTypeGroup
+	ChatTypeChannel
+	ChatTypeSupergroup
+)
 
 type Chat struct {
 	ID   ChatID
-	Type ChatTypeGroup
+	Type ChatType
 }
 
 type UserID int64
@@ -35,12 +44,24 @@ type ChatService interface {
 }
 
 type chatService struct {
-	api *tg.Client
+	api         *tg.Client
+	peers       *peerStore
+	peerManager *tgpeers.Manager
 }
 
 func (s *chatService) Resolve(ctx context.Context, ref ChatRef) (Chat, error) {
-	// TODO
-	panic("implement me")
+	peer, err := s.peerManager.Resolve(ctx, string(ref))
+	if err != nil {
+		return Chat{}, err
+	}
+
+	chatID := ChatID(peer.TDLibPeerID())
+	s.peers.Put(chatID, peer.InputPeer())
+
+	return Chat{
+		ID:   chatID,
+		Type: chatTypeFromPeer(peer),
+	}, nil
 }
 
 func (s *chatService) Join(ctx context.Context, ref ChatRef) (Chat, error) {

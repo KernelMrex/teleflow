@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"github.com/gotd/td/telegram"
+	tgpeers "github.com/gotd/td/telegram/peers"
 	"github.com/gotd/td/tg"
 )
 
@@ -119,11 +120,13 @@ func (c *client) Messages() (MessageService, error) {
 func (c *client) run(ctx context.Context, appID int, appHash string) {
 	defer close(c.done)
 
+	peerStore := newPeerStore()
+
 	tgOptions := telegram.Options{}
 
 	if c.updateMux != nil {
 		dispatcher := tg.NewUpdateDispatcher()
-		c.updateMux.register(&dispatcher)
+		c.updateMux.register(&dispatcher, peerStore)
 		tgOptions.UpdateHandler = dispatcher
 	} else {
 		tgOptions.NoUpdates = true
@@ -140,8 +143,17 @@ func (c *client) run(ctx context.Context, appID int, appHash string) {
 		}
 
 		api := c.tgClient.API()
-		c.chatService = &chatService{api: api}
-		c.messageService = &messageService{api: api}
+		peerManager := tgpeers.Options{}.Build(api)
+
+		c.chatService = &chatService{
+			api:         api,
+			peers:       peerStore,
+			peerManager: peerManager,
+		}
+		c.messageService = &messageService{
+			api:   api,
+			peers: peerStore,
+		}
 		c.signalReady(nil)
 
 		<-ctx.Done()
