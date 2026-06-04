@@ -9,6 +9,7 @@ import (
 	"github.com/gotd/td/constant"
 	"github.com/gotd/td/telegram/deeplink"
 	tgpeers "github.com/gotd/td/telegram/peers"
+	"github.com/gotd/td/telegram/peers/members"
 	"github.com/gotd/td/tg"
 )
 
@@ -99,20 +100,29 @@ func (s *chatService) Join(ctx context.Context, ref ChatRef) (Chat, error) {
 }
 
 func (s *chatService) Info(ctx context.Context, chatID ChatID) (Chat, error) {
-	if inputPeer, ok := s.peers.Get(chatID); ok {
-		peer, err := s.peerManager.FromInputPeer(ctx, inputPeer)
-		if err != nil {
-			return Chat{}, err
-		}
-		return s.chatFromPeer(peer), nil
-	}
-
-	peer, err := s.peerManager.ResolveTDLibID(ctx, constant.TDLibPeerID(chatID))
+	peer, err := s.peerByChatID(ctx, chatID)
 	if err != nil {
 		return Chat{}, err
 	}
 
 	return s.chatFromPeer(peer), nil
+}
+
+func (s *chatService) peerByChatID(ctx context.Context, chatID ChatID) (tgpeers.Peer, error) {
+	if inputPeer, ok := s.peers.Get(chatID); ok {
+		peer, err := s.peerManager.FromInputPeer(ctx, inputPeer)
+		if err != nil {
+			return nil, err
+		}
+		return peer, nil
+	}
+
+	peer, err := s.peerManager.ResolveTDLibID(ctx, constant.TDLibPeerID(chatID))
+	if err != nil {
+		return nil, err
+	}
+
+	return peer, nil
 }
 
 func (s *chatService) DownloadPhoto(ctx context.Context, chatID ChatID) (io.ReadCloser, error) {
@@ -121,8 +131,30 @@ func (s *chatService) DownloadPhoto(ctx context.Context, chatID ChatID) (io.Read
 }
 
 func (s *chatService) IterParticipants(ctx context.Context, chatID ChatID, handler func(user User) error) error {
-	// TODO
-	panic("implement me")
+	if handler == nil {
+		return fmt.Errorf("nil participant handler")
+	}
+
+	peer, err := s.peerByChatID(ctx, chatID)
+	if err != nil {
+		return err
+	}
+
+	var iter members.Members
+	switch p := peer.(type) {
+	case tgpeers.Chat:
+		iter = members.Chat(p)
+	case tgpeers.Channel:
+		iter = members.Channel(p)
+	case tgpeers.User:
+		return fmt.Errorf("peer %d is a user, not a chat", chatID)
+	default:
+		return fmt.Errorf("unsupported peer type %T", peer)
+	}
+
+	return iter.ForEach(ctx, func(member members.Member) error {
+		return handler(userFromPeer(member.User()))
+	})
 }
 
 func (s *chatService) joinPublic(ctx context.Context, ref string) (Chat, error) {
@@ -152,5 +184,16 @@ func (s *chatService) chatFromPeer(peer tgpeers.Peer) Chat {
 	return Chat{
 		ID:   chatID,
 		Type: chatTypeFromPeer(peer),
+	}
+}
+
+func userFromPeer(user tgpeers.User) User {
+	raw := user.Raw()
+
+	username, _ := user.Username()
+	return User{
+		ID:       UserID(user.ID()),
+		Username: username,
+		IsBot:    raw.Bot,
 	}
 }
