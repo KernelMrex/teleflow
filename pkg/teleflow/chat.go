@@ -8,6 +8,7 @@ import (
 
 	"github.com/gotd/td/constant"
 	"github.com/gotd/td/telegram/deeplink"
+	"github.com/gotd/td/telegram/downloader"
 	tgpeers "github.com/gotd/td/telegram/peers"
 	"github.com/gotd/td/telegram/peers/members"
 	"github.com/gotd/td/tg"
@@ -126,8 +127,40 @@ func (s *chatService) peerByChatID(ctx context.Context, chatID ChatID) (tgpeers.
 }
 
 func (s *chatService) DownloadPhoto(ctx context.Context, chatID ChatID) (io.ReadCloser, error) {
-	// TODO
-	panic("implement me")
+	peer, err := s.peerByChatID(ctx, chatID)
+	if err != nil {
+		return nil, err
+	}
+
+	photo, ok, err := peer.Photo(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, fmt.Errorf("peer %d has no photo", chatID)
+	}
+
+	thumbSize, ok := largestPhotoThumbSize(photo)
+	if !ok {
+		return nil, fmt.Errorf("peer %d photo has no downloadable size", chatID)
+	}
+
+	location := &tg.InputPhotoFileLocation{
+		ID:            photo.ID,
+		AccessHash:    photo.AccessHash,
+		FileReference: photo.FileReference,
+		ThumbSize:     thumbSize,
+	}
+
+	reader, writer := io.Pipe()
+	go func() {
+		_, err := downloader.NewDownloader().
+			Download(s.api, location).
+			Stream(ctx, writer)
+		_ = writer.CloseWithError(err)
+	}()
+
+	return reader, nil
 }
 
 func (s *chatService) IterParticipants(ctx context.Context, chatID ChatID, handler func(user User) error) error {
@@ -195,5 +228,40 @@ func userFromPeer(user tgpeers.User) User {
 		ID:       UserID(user.ID()),
 		Username: username,
 		IsBot:    raw.Bot,
+	}
+}
+
+func largestPhotoThumbSize(photo *tg.Photo) (string, bool) {
+	var (
+		thumbSize string
+		maxArea   int
+	)
+
+	for _, size := range photo.Sizes {
+		w, h, ok := photoSizeDimensions(size)
+		if !ok {
+			continue
+		}
+
+		area := w * h
+		if area > maxArea {
+			maxArea = area
+			thumbSize = size.GetType()
+		}
+	}
+
+	return thumbSize, thumbSize != ""
+}
+
+func photoSizeDimensions(size tg.PhotoSizeClass) (int, int, bool) {
+	switch s := size.(type) {
+	case *tg.PhotoSize:
+		return s.W, s.H, true
+	case *tg.PhotoCachedSize:
+		return s.W, s.H, true
+	case *tg.PhotoSizeProgressive:
+		return s.W, s.H, true
+	default:
+		return 0, 0, false
 	}
 }
