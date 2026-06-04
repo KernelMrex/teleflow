@@ -6,6 +6,7 @@ import (
 	"io"
 	"strings"
 
+	"github.com/gotd/td/constant"
 	"github.com/gotd/td/telegram/deeplink"
 	tgpeers "github.com/gotd/td/telegram/peers"
 	"github.com/gotd/td/tg"
@@ -97,6 +98,33 @@ func (s *chatService) Join(ctx context.Context, ref ChatRef) (Chat, error) {
 	return s.joinPublic(ctx, raw)
 }
 
+func (s *chatService) Info(ctx context.Context, chatID ChatID) (Chat, error) {
+	if inputPeer, ok := s.peers.Get(chatID); ok {
+		peer, err := s.peerManager.FromInputPeer(ctx, inputPeer)
+		if err != nil {
+			return Chat{}, err
+		}
+		return s.chatFromPeer(peer), nil
+	}
+
+	peer, err := s.peerManager.ResolveTDLibID(ctx, constant.TDLibPeerID(chatID))
+	if err != nil {
+		return Chat{}, err
+	}
+
+	return s.chatFromPeer(peer), nil
+}
+
+func (s *chatService) DownloadPhoto(ctx context.Context, chatID ChatID) (io.ReadCloser, error) {
+	// TODO
+	panic("implement me")
+}
+
+func (s *chatService) IterParticipants(ctx context.Context, chatID ChatID, handler func(user User) error) error {
+	// TODO
+	panic("implement me")
+}
+
 func (s *chatService) joinPublic(ctx context.Context, ref string) (Chat, error) {
 	peer, err := s.peerManager.Resolve(ctx, ref)
 	if err != nil {
@@ -125,19 +153,4 @@ func (s *chatService) chatFromPeer(peer tgpeers.Peer) Chat {
 		ID:   chatID,
 		Type: chatTypeFromPeer(peer),
 	}
-}
-
-func (s *chatService) Info(ctx context.Context, chatID ChatID) (Chat, error) {
-	// TODO
-	panic("implement me")
-}
-
-func (s *chatService) DownloadPhoto(ctx context.Context, chatID ChatID) (io.ReadCloser, error) {
-	// TODO
-	panic("implement me")
-}
-
-func (s *chatService) IterParticipants(ctx context.Context, chatID ChatID, handler func(user User) error) error {
-	// TODO
-	panic("implement me")
 }
