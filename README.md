@@ -19,9 +19,9 @@ go get github.com/kernelmrex/teleflow/pkg/teleflow@latest
 
 You can also download the source code from GitHub:
 
-- [Repository](https://github.com/KernelMrex/teleflow)
-- [Latest source archive](https://github.com/KernelMrex/teleflow/archive/refs/heads/main.zip)
-- [Releases](https://github.com/KernelMrex/teleflow/releases)
+- [Repository](https://github.com/kernelmrex/teleflow)
+- [Latest source archive](https://github.com/kernelmrex/teleflow/archive/refs/heads/main.zip)
+- [Releases](https://github.com/kernelmrex/teleflow/releases)
 
 ## Usage
 
