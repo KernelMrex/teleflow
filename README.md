@@ -56,6 +56,7 @@ func main() {
 		appID,
 		appHash,
 		teleflow.WithLoginMethod(teleflow.Phone(phone, readCode)),
+		// teleflow.WithSocks5("127.0.0.1:1080"),
 	)
 	if err != nil {
 		panic(err)

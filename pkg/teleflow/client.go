@@ -24,6 +24,12 @@ func WithUpdateMux(mux UpdateMux) ClientOption {
 	}
 }
 
+func WithProxy(proxy Proxy) ClientOption {
+	return func(c *client) {
+		c.proxy = proxy
+	}
+}
+
 func Connect(ctx context.Context, appID int, appHash string, opts ...ClientOption) (Client, error) {
 	ctx, cancel := context.WithCancel(ctx)
 
@@ -74,6 +80,7 @@ type client struct {
 
 	loginMethod LoginMethod
 	updateMux   UpdateMux
+	proxy       Proxy
 
 	done      chan struct{}
 	ready     chan error
@@ -130,6 +137,14 @@ func (c *client) run(ctx context.Context, appID int, appHash string) {
 		tgOptions.UpdateHandler = dispatcher
 	} else {
 		tgOptions.NoUpdates = true
+	}
+
+	if c.proxy != nil {
+		if err := c.proxy.Configure(&tgOptions); err != nil {
+			c.signalReady(err)
+			c.errChan <- err
+			return
+		}
 	}
 
 	c.tgClient = telegram.NewClient(appID, appHash, tgOptions)
